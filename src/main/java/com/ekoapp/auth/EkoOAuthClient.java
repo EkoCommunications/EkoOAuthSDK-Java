@@ -5,6 +5,8 @@ import com.google.gson.GsonBuilder;
 import com.google.gson.JsonObject;
 import okhttp3.*;
 
+import java.math.BigInteger;
+import java.security.SecureRandom;
 import java.util.Base64;
 
 public class EkoOAuthClient {
@@ -13,34 +15,63 @@ public class EkoOAuthClient {
     private String redirectUri;
     private String tokenUri;
     private String userInfoUri;
-    private String issuerUri;
+    private String authenticateUri;
     private String ekoUri;
+    private String scope;
 
     public EkoOAuthClient () {
+        this.scope = "openid profile";
     }
 
-    /**
-     * Get OAuth Token by authorization code
-     * @param code authentication_code
-     * @return oauth token
-     * @throws Exception
-     */
-    public EkoOAuthToken requestToken(String code) throws Exception {
+
+    public String requestUserInfoAsJsonString(String accessToken) throws Exception {
+        return this.sendUserInfoRequest(accessToken);
+    }
+    public String requestUserInfoAsJsonStringByCode(String code) throws Exception{
+        EkoOAuthToken token = this.requestToken(code);
+        return this.requestUserInfoAsJsonString(token.getAccessToken());
+    }
+
+    public JsonObject requestUserInfo(String accessToken) throws Exception {
+        Gson gson = new GsonBuilder().create();
+        return gson.fromJson(this.sendUserInfoRequest(accessToken), JsonObject.class);
+    }
+    public JsonObject requestUserInfoByCode(String code) throws Exception{
+        EkoOAuthToken token = this.requestToken(code);
+        return this.requestUserInfo(token.getAccessToken());
+    }
+
+    private String sendUserInfoRequest(String accessToken) throws Exception {
+        Request request = new Request.Builder()
+                .header("Authorization", this.getBearerCredentialString(accessToken))
+                .url(this.userInfoUri)
+                .build();
+
+
+        OkHttpClient client = new OkHttpClient();
+        Response response = client.newCall(request).execute();
+        String result =  response.body().string();
+        System.out.println(response);
+
+        Gson gson = new GsonBuilder().create();
+        if (response.code() == 200) {
+            return result;
+        }
+        else {
+            JsonObject jsonObject = gson.fromJson(result, JsonObject.class);
+            throw new EkoOAuthHttpException(jsonObject);
+        }
+    }
+
+    public String requestTokenAsJsonString(String code) throws Exception {
         RequestBody requestBody = new FormBody.Builder()
-            .add("grant_type", "authorization_code")
-            .add("code", code)
-            .add("redirect_uri", this.redirectUri)
-            .build();
+                .add("grant_type", "authorization_code")
+                .add("code", code)
+                .add("redirect_uri", this.redirectUri)
+                .build();
         return this.sendTokenRequest(requestBody);
     }
-
-    /**
-     * Get OAuth Token by refresh token
-     * @param refreshToken
-     * @return oauth token
-     * @throws Exception
-     */
-    public EkoOAuthToken requestTokenByRefreshToken(String refreshToken) throws Exception {
+    public String requestTokenAsJsonStringByRefreshToken(String refreshToken) throws Exception {
         RequestBody requestBody = new FormBody.Builder()
                 .add("grant_type", "refresh_token")
                 .add("refresh_token", refreshToken)
@@ -49,63 +80,46 @@ public class EkoOAuthClient {
         return this.sendTokenRequest(requestBody);
     }
 
-    public JsonObject requestUserInfo(String accessToken) throws Exception {
-        try {
+    public EkoOAuthToken requestToken(String code) throws Exception {
+        return this.parseToken(this.requestTokenAsJsonString(code));
+    }
+    public EkoOAuthToken requestTokenByRefreshToken(String refreshToken) throws Exception {
+        return this.parseToken(this.requestTokenAsJsonStringByRefreshToken(refreshToken));
+    }
 
-            Request request = new Request.Builder()
-                    .header("Authorization", this.getBearerCredentialString(accessToken))
-                    .url(this.userInfoUri)
-                    .build();
+    private String sendTokenRequest(RequestBody requestBody) throws Exception {
+        Request request = new Request.Builder()
+                .header("Authorization", this.getBasicCredentialString())
+                .url(this.tokenUri)
+                .post(requestBody)
+                .build();
 
+        OkHttpClient client = new OkHttpClient();
+        Response response = client.newCall(request).execute();
+        String result =  response.body().string();
+        System.out.println(response);
 
-            OkHttpClient client = new OkHttpClient();
-            Response response = client.newCall(request).execute();
-            String result =  response.body().string();
-            System.out.println(response);
-
-            Gson gson = new GsonBuilder().create();
-            if (response.code() == 200) {
-                JsonObject userInfo = gson.fromJson(result, JsonObject.class);
-                return userInfo;
-            }
-            else {
-                JsonObject jsonObject = gson.fromJson(result, JsonObject.class);
-                throw new EkoOAuthHttpException(jsonObject);
-            }
+        Gson gson = new GsonBuilder().create();
+        if (response.code() == 200) {
+            return result;
         }
-        catch (Exception e) {
-            throw e;
+        else {
+            JsonObject jsonObject = gson.fromJson(result, JsonObject.class);
+            throw new EkoOAuthHttpException(jsonObject);
         }
     }
 
-    private EkoOAuthToken sendTokenRequest(RequestBody requestBody) throws Exception {
-        try {
-            Request request = new Request.Builder()
-                    .header("Authorization", this.getBasicCredentialString())
-                    .url(this.tokenUri)
-                    .post(requestBody)
-                    .build();
+    public String createState() {
+        return new BigInteger(130, new SecureRandom()).toString(32);
+    }
 
-            OkHttpClient client = new OkHttpClient();
-            Response response = client.newCall(request).execute();
-            String result =  response.body().string();
-            System.out.println(response);
-
-            Gson gson = new GsonBuilder().create();
-            if (response.code() == 200) {
-                EkoOAuthToken oAuthToken = gson.fromJson(result, EkoOAuthToken.class);
-                oAuthToken.parseIdTokenString(this.issuerUri, this.clientSecret);
-                oAuthToken.parseScopeString();
-                return oAuthToken;
-            }
-            else {
-                JsonObject jsonObject = gson.fromJson(result, JsonObject.class);
-                throw new EkoOAuthHttpException(jsonObject);
-            }
-        }
-        catch (Exception e) {
-            throw e;
-        }
+    public String createAuthenticateUrl(String state) {
+        return this.authenticateUri +
+                "?response_type=code" +
+                "&client_id=" + this.clientId +
+                "&redirect_uri=" + this.redirectUri +
+                "&scope=" + this.scope +
+                "&state=" + state;
     }
 
     private String getBasicCredentialString() {
@@ -117,6 +131,24 @@ public class EkoOAuthClient {
         String credential = "Bearer " + accessToken;
         return credential;
     }
+
+    private EkoOAuthToken parseToken(String jsonString) throws Exception {
+        Gson gson = new GsonBuilder().create();
+        EkoOAuthToken oAuthToken = gson.fromJson(jsonString, EkoOAuthToken.class);
+        oAuthToken.parseIdTokenString(this.authenticateUri, this.clientSecret);
+        oAuthToken.parseScopeString();
+        return oAuthToken;
+    }
+
+    public void validateSate(String cachedState, String receivedState) throws Exception {
+        if(receivedState.isEmpty())
+            throw new EkoOAuthHttpException(500, "State must not be empty.");
+
+        if(!cachedState.equals(receivedState))
+            throw new EkoOAuthHttpException(500, "Invalid state.");
+    }
+
+
 
     public String getClientId() {
         return clientId;
@@ -150,8 +182,8 @@ public class EkoOAuthClient {
         this.userInfoUri = userInfoUri;
     }
 
-    private void setIssuerUri(String issuerUri) {
-        this.issuerUri = issuerUri;
+    private void setAuthenticateUri(String authenticateUri) {
+        this.authenticateUri = authenticateUri;
     }
 
     public String getEkoUri() {
@@ -160,7 +192,7 @@ public class EkoOAuthClient {
 
     public void setEkoUri(String ekoUri) {
         this.ekoUri = ekoUri;
-        this.setIssuerUri(this.ekoUri + "/oauth/authorize");
+        this.setAuthenticateUri(this.ekoUri + "/oauth/authorize");
         this.setTokenUri(this.ekoUri + "/oauth/token");
         this.setUserInfoUri(this.ekoUri + "/userinfo");
     }

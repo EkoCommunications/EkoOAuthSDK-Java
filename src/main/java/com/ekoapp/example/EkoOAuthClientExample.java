@@ -6,6 +6,7 @@ import com.ekoapp.auth.EkoOAuthToken;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonObject;
+import com.sun.net.httpserver.Headers;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
@@ -25,119 +26,132 @@ public class EkoOAuthClientExample {
     static final String REDIRECT_URI = "http://localhost:12345/cb";
     static final String EKO_URI = "https://example.ekoapp.com";
 
+
     public static void main (String[] args) throws Exception {
         // Host a server on port 12345
         HttpServer server = HttpServer.create(new InetSocketAddress(12345), 0);
-        server.createContext("/cb", new CallBackHandler());
+        server.createContext("/app", new AppHandler());
         server.setExecutor(null);
         server.start();
     }
 
-    static class CallBackHandler implements HttpHandler {
+    static class AppHandler implements HttpHandler {
+        String cachedState;
+
         @Override
         public void handle(HttpExchange t) throws IOException {
-            Gson gson = new GsonBuilder().create();
 
-            // Extract params from url query
-            Map<String, String> params = parseQueryString(t.getRequestURI().getQuery());
-            String code = params.get("code");
-            String state = params.get("state");
-
-            // Setup client
-            EkoOAuthClient authClient = new EkoOAuthClient();
-            authClient.setClientId(CLIENT_ID);
-            authClient.setClientSecret(CLIENT_SECRET);
-            authClient.setRedirectUri(REDIRECT_URI);
-            authClient.setEkoUri(EKO_URI);
-
-            String responseMessage;
             try {
+                // Extract params from url query,
+                // these code will be vary according to your framework
+                Map<String, String> params = parseQueryString(t.getRequestURI().getQuery());
+                String error = params.getOrDefault("error", "");
+                String code = params.getOrDefault("code", "");
+                String state = params.getOrDefault("state", "");
 
-                // 1. Request token by authorization code
-                EkoOAuthToken token = authClient.requestToken(code);
-                pln(" ");
-                pln("1. ## Request token by authorization code ##");
-                pln("This token is retrieved by authorization code \"" + code + "\"");
-                pln(" - access_token: " + token.getAccessToken());
-                pln(" - refresh_token: " + token.getRefreshToken());
-                pln(" - token_type: " + token.getTokenType());
-                pln(" - expires_in: " + token.getExpiresIn());
-                pln(" - scope: " + token.getScopes());
-                pln(" - id_token: " + token.getRawIdToken());
-                pln(" ");
+                // Check for error
+                if(!error.isEmpty()){
+                    throw new Exception("Error: " + error);
+                }
 
-                DecodedJWT tokenId = token.getIdToken();
-                pln("And here is the result of decoded id token.");
-                pln(" - firstname: " + tokenId.getClaim("firstname").asString());
-                pln(" - lastname: " + tokenId.getClaim("lastname").asString());
-                pln(" - email: " + tokenId.getClaim("email").asString());
-                pln(" - position: " + tokenId.getClaim("position").asString());
-                pln(" - iat (issued at): " + tokenId.getIssuedAt());
-                pln(" - exp (expires ar): " + tokenId.getExpiresAt());
-                pln(" - aud (audience): " + tokenId.getAudience());
-                pln(" - iss (issuer): " + tokenId.getIssuer());
-                pln("--------------------------------");
-                pln(" ");
+                // 1. Setup EkoOAuthClient, these values must be matched with pre-registered value on Eko db
+                EkoOAuthClient authClient = new EkoOAuthClient();
+                authClient.setClientId(CLIENT_ID);
+                authClient.setClientSecret(CLIENT_SECRET);
+                authClient.setRedirectUri(REDIRECT_URI);
+                authClient.setEkoUri(EKO_URI);
+
+                if (code.isEmpty()) {
+                    // 2. If the code is empty, redirect to the authentication endpoint
+
+                    // 2.1 Create a state and save it into the session. In this example, we will just
+                    // save it in a variable for demonstration purpose, do not follow this.
+                    this.cachedState = authClient.createState();
+
+                    // 2.2 Create an authentication endpoint url
+                    String authEndpointUrl = authClient.createAuthenticateUrl(cachedState);
+
+                    // 2.3 Redirect to the authentication endpoint,
+                    // these code will be vary according to your framework
+                    Headers responseHeaders = t.getResponseHeaders();
+                    responseHeaders.set("Location", authEndpointUrl);
+                    t.sendResponseHeaders(302,0);
+                }
+                else {
+                    // 3. Retrieve token and get user info
+
+                    // 3.1 Validate the state
+                    authClient.validateSate(this.cachedState, state);
+
+                    // 3.2 Get user info
+                    JsonObject userInfo = authClient.requestUserInfoByCode(code);
+                    printUserInfo(userInfo);
+
+                    // 3.3 Do the application logic,
+                    // in this case, simply reply first name and last name of the user
+                    String response = userInfo.get("firstname").getAsString() + " " +
+                            userInfo.get("lastname").getAsString();
 
 
-                // 2. Request token by refresh token
-                EkoOAuthToken token2 = authClient.requestTokenByRefreshToken(token.getRefreshToken());
-                pln(" ");
-                pln("2. ## Request token by refresh token ##");
-                pln("This token is retrieved by refresh token \"" + token.getRefreshToken() + "\"");
-                pln(" - access_token: " + token2.getAccessToken());
-                pln(" - refresh_token: " + token2.getRefreshToken());
-                pln(" - token_type: " + token2.getTokenType());
-                pln(" - expires_in: " + token2.getExpiresIn());
-                pln(" - scope: " + token2.getScopes());
-                pln(" - id_token: " + token2.getRawIdToken());
-                pln(" ");
+                    // 3.4 Respond,
+                    // these code will be vary according to your framework
+                    t.sendResponseHeaders(200, response.length());
+                    OutputStream os = t.getResponseBody();
+                    os.write(response.getBytes());
+                    os.close();
+                }
 
-                DecodedJWT tokenId2 = token2.getIdToken();
-                pln("And here is the result of decoded id token.");
-                pln(" - firstname: " + tokenId2.getClaim("firstname").asString());
-                pln(" - lastname: " + tokenId2.getClaim("lastname").asString());
-                pln(" - email: " + tokenId2.getClaim("email").asString());
-                pln(" - position: " + tokenId2.getClaim("position").asString());
-                pln(" - iat (issued at): " + tokenId2.getIssuedAt());
-                pln(" - exp (expires ar): " + tokenId2.getExpiresAt());
-                pln(" - aud (audience): " + tokenId2.getAudience());
-                pln(" - iss (issuer): " + tokenId2.getIssuer());
-                pln("--------------------------------");
-                pln(" ");
-
-                // 3. Get user info by access token
-                JsonObject userInfo = authClient.requestUserInfo(token.getAccessToken());
-                pln(" ");
-                pln("3. ## Get user info by access token ##");
-                pln(" - user_id: " + userInfo.get("_id").getAsString());
-                pln(" - firstname: " + userInfo.get("firstname").getAsString());
-                pln(" - lastname: " + userInfo.get("lastname").getAsString());
-                pln(" - email: " + userInfo.get("email").getAsString());
-                pln(" - network_id: " + userInfo.get("nid").getAsString());
-                pln(" - position: " + userInfo.get("position").getAsString());
-                pln(" - status: " + userInfo.get("status").getAsString());
-                pln(" - extras: " + gson.toJson(userInfo.get("extras").getAsJsonObject()));
-
-                responseMessage = "200 Ok, please observe the log on your server.";
-                t.sendResponseHeaders(200, responseMessage.length());
-                OutputStream os = t.getResponseBody();
-                os.write(responseMessage.getBytes());
-                os.close();
             }
             catch (Exception e) {
-                responseMessage = "500 Internal Server Error, please observe the log on your server.";
                 e.printStackTrace();
-                t.sendResponseHeaders(500, responseMessage.length());
+
+                String response = e.getMessage();
+                t.sendResponseHeaders(500, response.length());
                 OutputStream os = t.getResponseBody();
-                os.write(responseMessage.getBytes());
+                os.write(response.getBytes());
                 os.close();
             }
 
         }
     }
 
+    private static void printToken(EkoOAuthToken token) {
+        pln("# Token #");
+        pln(" - access_token: " + token.getAccessToken());
+        pln(" - refresh_token: " + token.getRefreshToken());
+        pln(" - token_type: " + token.getTokenType());
+        pln(" - expires_in: " + token.getExpiresIn());
+        pln(" - scope: " + token.getScopes());
+        pln(" - id_token: " + token.getRawIdToken());
+    }
 
+    private static void printIdToken(DecodedJWT idToken) {
+        pln("# Id Token #");
+        pln(" - firstname: " + idToken.getClaim("firstname").asString());
+        pln(" - lastname: " + idToken.getClaim("lastname").asString());
+        pln(" - email: " + idToken.getClaim("email").asString());
+        pln(" - position: " + idToken.getClaim("position").asString());
+        pln(" - iat (issued at): " + idToken.getIssuedAt());
+        pln(" - exp (expires at): " + idToken.getExpiresAt());
+        pln(" - aud (audience): " + idToken.getAudience());
+        pln(" - iss (issuer): " + idToken.getIssuer());
+    }
+
+    private static void printUserInfo(JsonObject userInfo) {
+        Gson gson = new GsonBuilder().create();
+        pln("# User Info #");
+        pln(" - user_id: " + userInfo.get("_id").getAsString());
+        pln(" - firstname: " + userInfo.get("firstname").getAsString());
+        pln(" - lastname: " + userInfo.get("lastname").getAsString());
+        pln(" - email: " + userInfo.get("email").getAsString());
+        pln(" - network_id: " + userInfo.get("nid").getAsString());
+        pln(" - position: " + userInfo.get("position").getAsString());
+        pln(" - status: " + userInfo.get("status").getAsString());
+        pln(" - extras: " + gson.toJson(userInfo.get("extras").getAsJsonObject()));
+    }
+
+    // From : https://stackoverflow.com/questions/11640025
+    // Answered by : Oliv https://stackoverflow.com/users/952135/oliv
     private static Map<String, String> parseQueryString(String qs) {
         Map<String, String> result = new HashMap<>();
         if (qs == null)

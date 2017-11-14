@@ -3,7 +3,6 @@ package com.ekoapp.auth;
 import com.auth0.jwt.JWT;
 import com.auth0.jwt.JWTVerifier;
 import com.auth0.jwt.algorithms.Algorithm;
-import com.auth0.jwt.exceptions.JWTDecodeException;
 import com.auth0.jwt.exceptions.JWTVerificationException;
 import com.auth0.jwt.interfaces.DecodedJWT;
 import com.google.gson.annotations.SerializedName;
@@ -28,11 +27,11 @@ public class EkoOAuthToken {
     @SerializedName("scope") private String scope;
     private List<String> _scopes;
 
-    void parseIdTokenString(String issuerUri, String clientSecret) throws Exception {
+    void parseIdTokenString(String authenticateUri, String clientSecret) throws Exception {
         try {
             Algorithm algorithm = Algorithm.HMAC256(clientSecret);
             JWTVerifier verifier = JWT.require(algorithm)
-                    .withIssuer(issuerUri)
+                    .withIssuer(authenticateUri)
                     .build();
             this._idToken = verifier.verify(this.idToken);
         }
@@ -47,6 +46,8 @@ public class EkoOAuthToken {
     void parseScopeString() throws Exception {
         this._scopes = Arrays.asList(this.scope.split("\\s+"));
     }
+
+
 
     @Override
     public String toString() {
