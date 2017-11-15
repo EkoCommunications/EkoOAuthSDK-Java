@@ -5,14 +5,14 @@ An OAuth authentication client for integrating 3rd party application with Eko Ap
 
 ### Prerequisites
 
-Client application must be registered with Eko first. They must provide a `redirect_uri` and they will received `client_id`, `client_secret` and `eko_uri`.
+Client application must be registered with Eko first. These values, `redirect_uri`, `client_id`, `client_secret` and `eko_uri`, will be defined during registration process.
 
 
 ### Running Example
 
-1. Edit the `client_id`, `client_secret`, `redirect_uri` and `eko_uri` in `EkoOAuthClientExample.java` to be matched with the value you registerd.
+1. Edit the `client_id`, `client_secret`, `redirect_uri` and `eko_uri` in `EkoOAuthClientExample.java`..
 2. Run EkoOAuthClientExample.java.
-3. Go to `http://localhost:12345/app` via the browser.
+3. Go to `http://localhost:12345/app` via the browser
 
 
 ### Usage
