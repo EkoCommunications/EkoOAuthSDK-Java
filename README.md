@@ -10,10 +10,10 @@ Client application must be registered with Eko first. These values, `redirect_ur
 
 ### Running Example
 
-1. Edit the `client_id`, `client_secret`, `redirect_uri` and `eko_uri` in `EkoOAuthClientExample.java`..
-2. Run EkoOAuthClientExample.java.
-3. Go to `http://localhost:12345/app` via the browser
-
+1. Edit the `client_id`, `client_secret`, `redirect_uri` and `eko_uri` in `EkoOAuthClientExample.java`.
+2. Run `EkoOAuthClientExample.java`.
+3. Login to Eko Web App.
+4. Open a new tab and go to `http://localhost:12345/app` via the browser.
 
 ### Usage
 
